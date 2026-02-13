@@ -23,18 +23,6 @@ body{
   overflow:hidden;
 }
 
-/* Stage */
-.stage{
-  position:relative;
-  width:100vw;
-  height:100vh;
-  overflow:hidden;
-
-  /* dot-grid instead of lines */
-  background:
-    radial-gradient(circle, var(--grid-dot) var(--grid-dot-radius), transparent calc(var(--grid-dot-radius) + 1px))
-    0 0 / var(--grid-size) var(--grid-size);
-}
 
 canvas{ width:100%; height:100%; display:block; }
 
