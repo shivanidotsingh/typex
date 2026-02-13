@@ -8,11 +8,15 @@
 
   const textInput = document.getElementById("textInput");
 
-  const miniPanel = document.getElementById("miniPanel");
-  const controlsArea = document.getElementById("controlsArea");
-  const collapseBtn = document.getElementById("collapseBtn");
-  const mouseToggleBtn = document.getElementById("mouseToggle");
+  // Switch + label
+  const mouseSwitch = document.getElementById("mouseSwitch");
+  const switchText  = document.getElementById("switchText");
 
+  // Panel
+  const miniPanel = document.getElementById("miniPanel");
+  const collapseBtn = document.getElementById("collapseBtn");
+
+  // Controls
   const wghtEl = document.getElementById("wght");
   const dithEl = document.getElementById("dith");
   const fsEl   = document.getElementById("fs");
@@ -38,15 +42,16 @@
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
   function applyLockUI(){
-    mouseToggleBtn.classList.toggle("active", mouseControl);
-    mouseToggleBtn.textContent = mouseControl ? "Mouse ON" : "Mouse OFF";
-
-    // lock sliders (visible but inactive)
+    // Lock sliders when mouse control is on
     wghtEl.disabled = mouseControl;
     dithEl.disabled = mouseControl;
 
     lockWrapW.classList.toggle("locked", mouseControl);
     lockWrapD.classList.toggle("locked", mouseControl);
+
+    // Switch text can remain constant “MOUSE”, but you can also show ON/OFF:
+    switchText.textContent = mouseControl ? "MOUSE ON" : "MOUSE OFF";
+    mouseSwitch.checked = mouseControl;
   }
 
   function getText(){
@@ -100,7 +105,7 @@
     // Halftone
     const thresh = 0.10 + (1 - dither) * 0.35;
 
-    // DOT SIZE: derived from spacing. Lower 0.28 -> smaller dots by default.
+    // Dot radius derives from spacing; lower multiplier => smaller dots
     const radiusBase = spacing * 0.28 * (0.35 + dither * 0.65);
 
     ctx.save();
@@ -146,7 +151,7 @@
     if (!mouseControl) return;
 
     const path = e.composedPath ? e.composedPath() : [];
-    if (path.includes(miniPanel) || path.includes(textInput)) return;
+    if (path.includes(textInput) || path.includes(miniPanel) || path.includes(mouseSwitch)) return;
 
     const rect = stage.getBoundingClientRect();
     const x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
@@ -164,23 +169,55 @@
     render();
   });
 
-  // Mouse toggle
-  mouseToggleBtn.addEventListener("click", () => {
-    mouseControl = !mouseControl;
+  // Switch toggle (click)
+  mouseSwitch.addEventListener("change", () => {
+    mouseControl = mouseSwitch.checked;
     applyLockUI();
     render();
+  });
+
+  // Keyboard toggle: M always, Space only when not typing.
+  function isTypingContext(){
+    const el = document.activeElement;
+    if (!el) return false;
+    return el === textInput || el.isContentEditable;
+  }
+
+  window.addEventListener("keydown", (e) => {
+    // Toggle with "m" anywhere (except when composing IME)
+    if (e.isComposing) return;
+
+    const key = e.key.toLowerCase();
+
+    if (key === "m") {
+      // don’t steal typing "m" inside textarea
+      if (isTypingContext()) return;
+      mouseControl = !mouseControl;
+      applyLockUI();
+      render();
+      return;
+    }
+
+    if (e.code === "Space") {
+      // only toggle space when NOT typing, so we don’t block spaces in the textarea
+      if (isTypingContext()) return;
+      e.preventDefault();
+      mouseControl = !mouseControl;
+      applyLockUI();
+      render();
+    }
   });
 
   // Collapse (arrow only)
   collapseBtn.addEventListener("click", () => {
     miniPanel.classList.toggle("collapsed");
-    // arrow: down when open, right when collapsed
     collapseBtn.textContent = miniPanel.classList.contains("collapsed") ? "▸" : "▾";
   });
 
   window.addEventListener("resize", fitCanvas);
 
   // Init
+  mouseControl = true;
   applyLockUI();
   fitCanvas();
   textInput.focus();
