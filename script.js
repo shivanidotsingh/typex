@@ -39,17 +39,19 @@
   let sizeK  = 0.18;
   let spacing = 10;
 
+  // Pointer (used for background + (optionally) weight/dither)
+  let px = 0.5, py = 0.5;     // normalized 0..1
+  let hasPointer = false;
+
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
   function applyLockUI(){
-    // Lock sliders when mouse control is on
     wghtEl.disabled = mouseControl;
     dithEl.disabled = mouseControl;
 
     lockWrapW.classList.toggle("locked", mouseControl);
     lockWrapD.classList.toggle("locked", mouseControl);
 
-    // Switch text can remain constant “MOUSE”, but you can also show ON/OFF:
     switchText.textContent = mouseControl ? "MOUSE ON" : "MOUSE OFF";
     mouseSwitch.checked = mouseControl;
   }
@@ -76,7 +78,7 @@
 
     const W = off.width, H = off.height;
 
-    // Text → offscreen
+    // --- 1) build text mask (offscreen) ---
     offCtx.clearRect(0, 0, W, H);
     offCtx.save();
     offCtx.fillStyle = "#000";
@@ -97,28 +99,74 @@
     }
     offCtx.restore();
 
-    const img = offCtx.getImageData(0, 0, W, H).data;
+    const textImg = offCtx.getImageData(0, 0, W, H).data;
 
-    // Clear onscreen
+    // --- 2) clear main canvas ---
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Halftone
-    const thresh = 0.10 + (1 - dither) * 0.35;
+    // --- 3) draw interactive background halftone field ---
+    // Background grid spacing (independent, denser than text grid)
+    const bgStep = Math.max(4, Math.round(spacing * 0.65));
+    const mx = hasPointer ? px * W : W * 0.5;
+    const my = hasPointer ? py * H : H * 0.5;
 
-    // Dot radius derives from spacing; lower multiplier => smaller dots
-    const radiusBase = spacing * 0.28 * (0.35 + dither * 0.65);
+    // Controls the "reach" of the interaction (bigger = broader)
+    const sigma = Math.min(W, H) * 0.28;
+    const inv2s2 = 1 / (2 * sigma * sigma);
+
+    // Base background dot radius (keep it subtle)
+    const bgBaseR = bgStep * 0.18;
 
     ctx.save();
     ctx.fillStyle = "#000";
 
+    for (let y = 0; y < H; y += bgStep) {
+      for (let x = 0; x < W; x += bgStep) {
+
+        // Soft field around mouse (Gaussian falloff)
+        const dx = x - mx;
+        const dy = y - my;
+        const g = Math.exp(-(dx*dx + dy*dy) * inv2s2); // 0..1-ish
+
+        // Use text mask to "knock back" background under letters
+        const i = (y * W + x) * 4;
+        const a = textImg[i+3] / 255; // alpha = how much text exists here
+        // a=1 inside text, a=0 outside
+
+        // Background intensity: outside text stronger, inside text weaker
+        const textKnock = 1 - (a * 0.85);
+
+        // Dot radius and opacity vary with mouse field
+        const r = Math.max(0.45, bgBaseR + g * (bgStep * 0.22)) * textKnock;
+        const alpha = (0.08 + g * 0.18) * textKnock; // subtle
+
+        if (alpha < 0.01 || r < 0.2) continue;
+
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+
+    // --- 4) draw text halftone on top (your existing system) ---
+    const thresh = 0.10 + (1 - dither) * 0.35;
+    const radiusBase = spacing * 0.28 * (0.35 + dither * 0.65);
+
+    ctx.save();
+    ctx.fillStyle = "#000";
+    ctx.globalAlpha = 1;
+
     for (let y=0; y<H; y+=spacing){
       for (let x=0; x<W; x+=spacing){
         const i = (y * W + x) * 4;
-        const r = img[i], g = img[i+1], b = img[i+2];
-        const a = img[i+3] / 255;
+        const rC = textImg[i], gC = textImg[i+1], bC = textImg[i+2];
+        const aC = textImg[i+3] / 255;
 
-        const bright = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
-        const ink = (1 - bright) * a;
+        const bright = (0.2126*rC + 0.7152*gC + 0.0722*bC) / 255;
+        const ink = (1 - bright) * aC;
         if (ink < thresh) continue;
 
         const rad = Math.max(0.6, radiusBase * (0.25 + ink * 1.25));
@@ -146,26 +194,36 @@
   }
   [wghtEl, dithEl, fsEl, spEl].forEach(el => el.addEventListener("input", syncFromSliders));
 
-  // Mouse: ONLY weight/dither when enabled. Ignore when pointer over UI.
+  // Pointer move:
+  // - always updates pointer for background
+  // - when mouseControl is ON, also controls weight + dither
   stage.addEventListener("pointermove", (e) => {
-    if (!mouseControl) return;
-
     const path = e.composedPath ? e.composedPath() : [];
     if (path.includes(textInput) || path.includes(miniPanel) || path.includes(mouseSwitch)) return;
 
     const rect = stage.getBoundingClientRect();
-    const x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-    const y = clamp((e.clientY - rect.top)  / rect.height, 0, 1);
+    px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    py = clamp((e.clientY - rect.top)  / rect.height, 0, 1);
+    hasPointer = true;
 
-    const fine = e.shiftKey ? 0.25 : 1;
-    const targetW = 100 + x * 900;
-    const targetD = y;
+    if (mouseControl) {
+      const fine = e.shiftKey ? 0.25 : 1;
+      const targetW = 100 + px * 900;
+      const targetD = py;
 
-    weight = weight + (targetW - weight) * (0.25 * fine);
-    dither = dither + (targetD - dither) * (0.25 * fine);
+      weight = weight + (targetW - weight) * (0.25 * fine);
+      dither = dither + (targetD - dither) * (0.25 * fine);
 
-    wghtEl.value = String(Math.round(weight));
-    dithEl.value = String(dither.toFixed(2));
+      wghtEl.value = String(Math.round(weight));
+      dithEl.value = String(dither.toFixed(2));
+    }
+
+    // Re-render so background follows mouse smoothly
+    render();
+  });
+
+  stage.addEventListener("pointerleave", () => {
+    hasPointer = false;
     render();
   });
 
@@ -184,13 +242,10 @@
   }
 
   window.addEventListener("keydown", (e) => {
-    // Toggle with "m" anywhere (except when composing IME)
     if (e.isComposing) return;
-
     const key = e.key.toLowerCase();
 
     if (key === "m") {
-      // don’t steal typing "m" inside textarea
       if (isTypingContext()) return;
       mouseControl = !mouseControl;
       applyLockUI();
@@ -199,7 +254,6 @@
     }
 
     if (e.code === "Space") {
-      // only toggle space when NOT typing, so we don’t block spaces in the textarea
       if (isTypingContext()) return;
       e.preventDefault();
       mouseControl = !mouseControl;
