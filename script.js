@@ -1,10 +1,8 @@
+// script.js
 (() => {
   const stage  = document.getElementById("stage");
   const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d", { willRead: true });
-
-  const off = document.createElement("canvas");
-  const offCtx = off.getContext("2d", { willRead: true });
+  const ctx = canvas.getContext("2d");
 
   const textInput = document.getElementById("textInput");
 
@@ -33,15 +31,17 @@
   const status = document.getElementById("status");
 
   // State
-  let mouseControl = true;
+  let mouseControl = true; // when ON: mouse controls weight + dither (not background)
   let weight = 500;
   let dither = 0.45;
   let sizeK  = 0.18;
   let spacing = 10;
 
-  // Pointer (used for background + (optionally) weight/dither)
-  let px = 0.5, py = 0.5;     // normalized 0..1
-  let hasPointer = false;
+  // Leading (line spacing) multiplier
+  let leading = 1.05;
+
+  // Pointer used only for weight/dither when mouseControl is ON
+  let px = 0.5, py = 0.5;
 
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
@@ -65,120 +65,78 @@
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width  = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
-    off.width = canvas.width;
-    off.height = canvas.height;
     render();
   }
 
   function render(){
+    // UI readouts
     wVal.textContent  = String(Math.round(weight));
     dVal.textContent  = dither.toFixed(2);
     fsVal.textContent = sizeK.toFixed(3);
     spVal.textContent = String(spacing);
 
-    const W = off.width, H = off.height;
+    const W = canvas.width, H = canvas.height;
 
-    // --- 1) build text mask (offscreen) ---
-    offCtx.clearRect(0, 0, W, H);
-    offCtx.save();
-    offCtx.fillStyle = "#000";
-    offCtx.textAlign = "center";
-    offCtx.textBaseline = "middle";
+    // Clear
+    ctx.clearRect(0, 0, W, H);
 
+    // --- Typography metrics ---
     const lines = (getText().trim() || " ").split("\n");
     const base = Math.min(W, H);
     const fontSize = Math.max(18, Math.round(base * sizeK));
-    offCtx.font = `${Math.round(weight)} ${fontSize}px "Roboto Flex", system-ui, sans-serif`;
-
-    const lh = fontSize * 1.05;
+    const lh = fontSize * leading;
     const blockH = (lines.length - 1) * lh;
     const startY = H * 0.5 - blockH * 0.5;
 
-    for (let i = 0; i < lines.length; i++){
-      offCtx.fillText(lines[i], W * 0.5, startY + i * lh);
-    }
-    offCtx.restore();
+    const font = `${Math.round(weight)} ${fontSize}px "Roboto Flex", system-ui, sans-serif`;
 
-    const textImg = offCtx.getImageData(0, 0, W, H).data;
-
-    // --- 2) clear main canvas ---
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // --- 3) draw interactive background halftone field ---
-    // Background grid spacing (independent, denser than text grid)
-    const bgStep = Math.max(4, Math.round(spacing * 0.65));
-    const mx = hasPointer ? px * W : W * 0.5;
-    const my = hasPointer ? py * H : H * 0.5;
-
-    // Controls the "reach" of the interaction (bigger = broader)
-    const sigma = Math.min(W, H) * 0.28;
-    const inv2s2 = 1 / (2 * sigma * sigma);
-
-    // Base background dot radius (keep it subtle)
-    const bgBaseR = bgStep * 0.18;
+    // --- 1) Draw uniform dot-grid background (BLACK dots on WHITE page) ---
+    // Background reacts to the same "axis" feel: let dither slightly change dot radius.
+    const bgStep = Math.max(5, Math.round(spacing * 0.75));
+    const bgRadius = bgStep * (0.18 + dither * 0.18); // tweak for your taste
+    const bgAlpha = 1.0; // bold like your reference
 
     ctx.save();
     ctx.fillStyle = "#000";
+    ctx.globalAlpha = bgAlpha;
 
-    for (let y = 0; y < H; y += bgStep) {
-      for (let x = 0; x < W; x += bgStep) {
-
-        // Soft field around mouse (Gaussian falloff)
-        const dx = x - mx;
-        const dy = y - my;
-        const g = Math.exp(-(dx*dx + dy*dy) * inv2s2); // 0..1-ish
-
-        // Use text mask to "knock back" background under letters
-        const i = (y * W + x) * 4;
-        const a = textImg[i+3] / 255; // alpha = how much text exists here
-        // a=1 inside text, a=0 outside
-
-        // Background intensity: outside text stronger, inside text weaker
-        const textKnock = 1 - (a * 0.85);
-
-        // Dot radius and opacity vary with mouse field
-        const r = Math.max(0.45, bgBaseR + g * (bgStep * 0.22)) * textKnock;
-        const alpha = (0.08 + g * 0.18) * textKnock; // subtle
-
-        if (alpha < 0.01 || r < 0.2) continue;
-
-        ctx.globalAlpha = alpha;
+    for (let y = 0; y < H; y += bgStep){
+      for (let x = 0; x < W; x += bgStep){
         ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.arc(x, y, bgRadius, 0, Math.PI * 2);
         ctx.fill();
       }
     }
     ctx.restore();
-    ctx.globalAlpha = 1;
 
-    // --- 4) draw text halftone on top (your existing system) ---
-    const thresh = 0.10 + (1 - dither) * 0.35;
-    const radiusBase = spacing * 0.28 * (0.35 + dither * 0.65);
-
+    // --- 2) Punch out the text (makes the text area WHITE/empty) ---
     ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = "#000";
-    ctx.globalAlpha = 1;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = font;
 
-    for (let y=0; y<H; y+=spacing){
-      for (let x=0; x<W; x+=spacing){
-        const i = (y * W + x) * 4;
-        const rC = textImg[i], gC = textImg[i+1], bC = textImg[i+2];
-        const aC = textImg[i+3] / 255;
+    for (let i = 0; i < lines.length; i++){
+      ctx.fillText(lines[i], W * 0.5, startY + i * lh);
+    }
+    ctx.restore();
 
-        const bright = (0.2126*rC + 0.7152*gC + 0.0722*bC) / 255;
-        const ink = (1 - bright) * aC;
-        if (ink < thresh) continue;
+    // --- 3) Optional: paint white text on top for crispness (helps on some displays) ---
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = font;
 
-        const rad = Math.max(0.6, radiusBase * (0.25 + ink * 1.25));
-        ctx.beginPath();
-        ctx.arc(x, y, rad, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    for (let i = 0; i < lines.length; i++){
+      ctx.fillText(lines[i], W * 0.5, startY + i * lh);
     }
     ctx.restore();
 
     status.textContent =
-      `mouse=${mouseControl ? "on" : "off"}  weight=${Math.round(weight)}  dither=${dither.toFixed(2)}  size=${sizeK.toFixed(3)}  spacing=${spacing}`;
+      `mouse=${mouseControl ? "on" : "off"}  weight=${Math.round(weight)}  dither=${dither.toFixed(2)}  size=${sizeK.toFixed(3)}  spacing=${spacing}  leading=${leading.toFixed(2)}`;
   }
 
   // Text events
@@ -194,36 +152,27 @@
   }
   [wghtEl, dithEl, fsEl, spEl].forEach(el => el.addEventListener("input", syncFromSliders));
 
-  // Pointer move:
-  // - always updates pointer for background
-  // - when mouseControl is ON, also controls weight + dither
+  // Mouse: ONLY weight/dither when enabled. Background does not follow cursor.
   stage.addEventListener("pointermove", (e) => {
+    if (!mouseControl) return;
+
     const path = e.composedPath ? e.composedPath() : [];
     if (path.includes(textInput) || path.includes(miniPanel) || path.includes(mouseSwitch)) return;
 
     const rect = stage.getBoundingClientRect();
     px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
     py = clamp((e.clientY - rect.top)  / rect.height, 0, 1);
-    hasPointer = true;
 
-    if (mouseControl) {
-      const fine = e.shiftKey ? 0.25 : 1;
-      const targetW = 100 + px * 900;
-      const targetD = py;
+    const fine = e.shiftKey ? 0.25 : 1;
+    const targetW = 100 + px * 900;
+    const targetD = py;
 
-      weight = weight + (targetW - weight) * (0.25 * fine);
-      dither = dither + (targetD - dither) * (0.25 * fine);
+    weight = weight + (targetW - weight) * (0.25 * fine);
+    dither = dither + (targetD - dither) * (0.25 * fine);
 
-      wghtEl.value = String(Math.round(weight));
-      dithEl.value = String(dither.toFixed(2));
-    }
+    wghtEl.value = String(Math.round(weight));
+    dithEl.value = String(dither.toFixed(2));
 
-    // Re-render so background follows mouse smoothly
-    render();
-  });
-
-  stage.addEventListener("pointerleave", () => {
-    hasPointer = false;
     render();
   });
 
@@ -271,7 +220,6 @@
   window.addEventListener("resize", fitCanvas);
 
   // Init
-  mouseControl = true;
   applyLockUI();
   fitCanvas();
   textInput.focus();
