@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>type experiments</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Recursive:wght@300..1000&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+  
+</head>
+
+<body>
+  <div class="stage" id="stage">
+    <canvas id="c"></canvas>
+
+    <div class="uiDock">
+      <textarea id="textInput" class="textInput" spellcheck="false">Hello</textarea>
+
+      <div class="miniPanel" id="miniPanel">
+        <div class="miniRow">
+          <button class="btn active" id="mouseToggle" type="button">Mouse ON</button>
+          <span class="miniHint">X→weight, Y→dither. <span class="kbd">Shift</span>=fine.</span>
+
+          <button class="collapseArrow" id="collapseBtn" type="button" aria-label="Collapse controls">▾</button>
+        </div>
+
+        <div class="controlsArea" id="controlsArea">
+          <div class="miniRow">
+            <div class="controlsGrid">
+              <div class="ctrl" id="lockWrapW">
+                <span>Weight <span id="wVal" class="kbd"></span></span>
+                <input id="wght" type="range" min="100" max="1000" value="500" step="1">
+              </div>
+
+              <div class="ctrl" id="lockWrapD">
+                <span>Dither <span id="dVal" class="kbd"></span></span>
+                <input id="dith" type="range" min="0" max="1" value="0.45" step="0.01">
+              </div>
+
+              <div class="ctrl">
+                <span>Size <span id="fsVal" class="kbd"></span></span>
+                <input id="fs" type="range" min="0.06" max="0.45" value="0.18" step="0.005">
+              </div>
+
+              <div class="ctrl">
+                <span>Spacing <span id="spVal" class="kbd"></span></span>
+                <input id="sp" type="range" min="3" max="28" value="10" step="1">
+              </div>
+            </div>
+          </div>
+
+          <div class="miniRow">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
